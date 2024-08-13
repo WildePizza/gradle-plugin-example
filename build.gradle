@@ -1,21 +1,24 @@
+plugins {
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+    id 'java'
+}
+
 group = artifact_group
 version = "${artifact_version}.${build_number}"
-
-apply plugin: 'groovy'
-apply plugin: 'maven'
 
 repositories {
 	mavenCentral()
 }
 
 dependencies {
-    compile gradleApi()
-    compile localGroovy()
-    testCompile gradleTestKit()
+    implementation gradleApi()
+    testImplementation(platform("org.junit:junit-bom:5.9.1"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
 }
 
-task wrapper(type: Wrapper) {
-    gradleVersion = "2.10"
+test {
+    useJUnitPlatform()
 }
 
 test {
@@ -42,12 +45,3 @@ task createClasspathManifest {
         file("$outputDir/plugin-classpath.txt").text = sourceSets.main.runtimeClasspath.join("\n")
     }
 }
-
-// Add the classpath file to the test runtime classpath
-dependencies {
-    testRuntime files(createClasspathManifest)
-}
-
-sourceCompatibility = 1.7
-targetCompatibility = 1.7
-
