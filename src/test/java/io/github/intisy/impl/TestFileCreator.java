@@ -1,12 +1,10 @@
-package com.github.WildePizza.impl;
+package io.github.intisy.impl;
 
-import com.github.WildePizza.impl.FileCreator;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;

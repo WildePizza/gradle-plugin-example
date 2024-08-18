@@ -1,4 +1,4 @@
-package com.github.WildePizza.impl;
+package io.github.intisy.impl;
 
 import java.io.File;
 import java.io.IOException;

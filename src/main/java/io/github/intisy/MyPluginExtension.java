@@ -1,4 +1,4 @@
-package com.github.WildePizza;
+package io.github.intisy;
 
 public class MyPluginExtension {
     public String fileContent = "¯\\_(ツ)_/¯";

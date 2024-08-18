@@ -1,4 +1,4 @@
-package com.github.WildePizza;
+package io.github.intisy;
 
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;

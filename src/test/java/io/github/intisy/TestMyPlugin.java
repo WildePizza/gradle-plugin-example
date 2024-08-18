@@ -1,8 +1,5 @@
-package com.github.WildePizza;
+package io.github.intisy;
 
-import com.github.WildePizza.MyPlugin;
-import com.github.WildePizza.MyPluginExtension;
-import com.github.WildePizza.MyTask;
 import org.gradle.api.Project;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.junit.jupiter.api.Test;

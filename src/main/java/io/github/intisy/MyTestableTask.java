@@ -1,6 +1,6 @@
-package com.github.WildePizza;
+package io.github.intisy;
 
-import com.github.WildePizza.impl.FileCreator;
+import io.github.intisy.impl.FileCreator;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.tasks.TaskAction;
 
