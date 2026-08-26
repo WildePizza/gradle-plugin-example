@@ -4,82 +4,160 @@
 - [Previous](1-your-first-gradle-plugin.md)
 - [Next](3-declaring-tasks-the-right-way.md)
 
-Testing Gradle plugins is a task which must occur at multiple levels. Testing our simple plugin can only occur at the integration level today because of how its structured. 
+Testing Gradle plugins happens at two levels. *Integration* tests run a real Gradle build against a
+real project directory and check what came out. *Unit* tests exercise your logic directly, without a
+build at all.
 
-In later steps we'll develop more decoupled plugin structures that can be unit tested, but for now we'll cover:
+Our plugin as written can only be tested at the integration level, because everything it does is
+tied to a `Project`. [Tutorial 4](4-making-unit-testable-plugins.md) restructures it so that unit
+tests become possible. For now we will cover:
 
-- How to create a test gradle project.
-- How to include your plugin in a test gradle build.
-- How to inspect the results of a test gradle build.
+- How to set up TestKit.
+- How to create a test Gradle project.
+- How to include your plugin in a test build.
+- How to inspect the results of that build.
 
-## Defining an Integration Test using ``GradleRunner``
+## Setting Up TestKit
 
-Gradle in its newer versions contains a built in [test kit](https://docs.gradle.org/current/userguide/test_kit.html) which is extremely useful for this kind of testing. We will take advantage of the ``GradleRunner`` implementation from that testkit.
+Gradle ships a [test kit](https://docs.gradle.org/current/userguide/test_kit.html) built for exactly
+this. If you applied `java-gradle-plugin` in the previous tutorial, most of the wiring is already
+done for you: it adds the `gradleTestKit()` dependency to your test compile classpath, and it
+generates the metadata that tells `GradleRunner` where your plugin's classes live.
+
+So the whole build script addition is your test framework and nothing else:
 
 ```groovy
-import org.gradle.testkit.runner.GradleRunner
-import static org.gradle.testkit.runner.TaskOutcome.UP_TO_DATE
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
 
-class TestRealBuild extends GroovyTestCase {
-    def projectDir = new File(System.getProperty("user.dir") + "/testProjects/simpleProject")
-    def pluginClasspathResource = getClass().classLoader.findResource("plugin-classpath.txt")
-    def pluginClasspath = pluginClasspathResource.readLines().collect { new File(it) }
-
-    void testDealWithIt() {
-        def result = GradleRunner.create()
-                .withProjectDir(projectDir)
-                .withPluginClasspath(pluginClasspath)
-                .withArguments("dealwithit")
-                .build()
-
-        assertEquals(UP_TO_DATE, result.task(":dealwithit").getOutcome())
-        assertTrue(result.output.contains("(•_•) ( •_•)>⌐■-■ (⌐■_■)"))
-    }
+tasks.named('test') {
+    useJUnitPlatform()
 }
 ```
 
-You'll notice the project setup requires a few things to be functional, namely:
-
-1. A test project with a ``build.gradle`` to execute.
-2. A ``plugin-classpath.txt`` which adds our built plugin (which is under test) to the test project's classpath.
+> **If you are following an older tutorial**, you may have seen a `createClasspathManifest` task
+> that writes a `plugin-classpath.txt` file, plus a `testRuntime files(createClasspathManifest)`
+> dependency. That was the workaround before `java-gradle-plugin` learned to do it itself. It is no
+> longer needed, and `testRuntime` was removed from Gradle entirely. Delete both; call
+> `withPluginClasspath()` with no arguments instead.
 
 ## Creating a Test Project
 
-For the first piece of test infrastructure, we simply create a test project in the plugin's code tree. We will place this test project in ``testProjects/simpleProject`` and include a simple ``build.gradle`` in it:
+An integration test needs a project to build. We keep two of them under `testProjects/`, checked
+into the repository so you can also run them by hand while developing.
+
+`testProjects/simpleProject/settings.gradle`:
+
+```groovy
+rootProject.name = 'simpleProject'
+```
+
+`testProjects/simpleProject/build.gradle`:
 
 ```groovy
 plugins {
-    id "myplugin"
+    id 'io.github.intisy.myplugin'
 }
 ```
 
-## Setting up ``plugin-classpath.txt``
+Note there is no `version` on that plugin id, and no repository declaration. `withPluginClasspath()`
+injects the plugin directly onto the build's class path, so there is nothing to resolve.
 
-This can be done by adding the following snippet to the plugin projects ``build.grade``.
+## Defining an Integration Test using `GradleRunner`
 
-```groovy
-task createClasspathManifest {
-    def outputDir = file("$buildDir/$name")
+```java
+package io.github.intisy;
 
-    inputs.files sourceSets.main.runtimeClasspath
-    outputs.dir outputDir
+import org.gradle.testkit.runner.BuildResult;
+import org.gradle.testkit.runner.GradleRunner;
+import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
-    doLast {
-        outputDir.mkdirs()
-        file("$outputDir/plugin-classpath.txt").text = sourceSets.main.runtimeClasspath.join("\n")
+import java.io.IOException;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class TestRealBuild {
+    private static final Path FIXTURES = Path.of(System.getProperty("user.dir"), "testProjects");
+
+    @TempDir
+    Path projectDir;
+
+    private GradleRunner runnerFor(String fixture, String task) throws IOException {
+        copyDirectory(FIXTURES.resolve(fixture), projectDir);
+        return GradleRunner.create()
+                .withProjectDir(projectDir.toFile())
+                .withPluginClasspath()
+                .withArguments(task, "--configuration-cache", "--stacktrace");
+    }
+
+    @Test
+    void dealWithItPrintsTheGreeting() throws IOException {
+        BuildResult result = runnerFor("simpleProject", "dealwithit").build();
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":dealwithit").getOutcome());
+        assertTrue(result.getOutput().contains("(•_•) ( •_•)>⌐■-■ (⌐■_■)"));
     }
 }
+```
 
-dependencies {
-    testRuntime files(createClasspathManifest)
+Three things here are worth calling out.
+
+**The fixture is copied into a `@TempDir` rather than built in place.** Running Gradle inside
+`testProjects/simpleProject` leaves a `build/` directory and a `.gradle/` cache behind in your
+source tree. Older versions of this tutorial dealt with that by deleting those directories in
+`setUp` and `tearDown`, which works right up until a test fails and leaves the mess anyway. Copying
+into a temporary directory means every test starts from a known state and cleans itself up.
+
+**`withPluginClasspath()` takes no arguments.** It reads the metadata generated by
+`java-gradle-plugin`. There is no file for you to build or maintain.
+
+**Every run passes `--configuration-cache`.** This is a cheap and very effective guard. Gradle's
+[configuration cache](https://docs.gradle.org/current/userguide/configuration_cache.html) fails the
+build if a task reaches back into the `Project` object while it is executing, which is the most
+common structural mistake in plugin code. Asking for it in the test suite means you find out
+immediately rather than from a user's bug report.
+
+**We assert `SUCCESS`, not `UP_TO_DATE`.** Because the greeting lives in a `doLast` block, the task
+has work to do and reports `SUCCESS`. If you had written the `println` at configuration time as
+warned about in tutorial 1, the task would have no actions and report `UP_TO_DATE`, while the text
+appeared in the output of every unrelated build.
+
+## Inspecting the Results
+
+`BuildResult` gives you two useful handles:
+
+- `result.task(":taskname").getOutcome()` returns the `TaskOutcome`: `SUCCESS`, `UP_TO_DATE`,
+  `SKIPPED`, `FAILED`, `FROM_CACHE`, `NO_SOURCE`.
+- `result.getOutput()` returns the full console output as a `String`.
+
+For a task that produces files, assert on the files rather than the log. Because the build ran in
+`projectDir`, the output is right where you would expect:
+
+```java
+@Test
+void myTaskWritesTheDefaultContent() throws IOException {
+    BuildResult result = runnerFor("simpleProject", "mytask").build();
+
+    assertEquals(TaskOutcome.SUCCESS, result.task(":mytask").getOutcome());
+    assertEquals("¯\\_(ツ)_/¯",
+            Files.readString(projectDir.resolve("build/myfile.txt")));
 }
 ```
 
-This instructs our plugin project to create the ``plugin-claspath.txt`` file before tests are run. It is now accessible to the test bench.
+To assert on a build that is *supposed* to fail, call `buildAndFail()` instead of `build()`.
 
 ## Next Steps
 
-As you can see, integration testing of plugins isn't the easiest thing. That said, integration testing is necessary in many cases. Hopefully this tutorial gives you some tools for implementing these integration tests. 
+Integration tests are slow, because each one starts a Gradle build. They are also the only way to
+verify that your plugin behaves correctly when a real build script applies it, so you will always
+want some. The trick is to keep the number small and push detail down into unit tests.
 
-In the next step we'll present a better way to define tasks. This will allow us to build larger plugins that span multiple files.
-
+In the next step we will look at a better way to define tasks, so that a plugin can grow past a
+single file.

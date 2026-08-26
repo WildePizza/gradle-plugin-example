@@ -1,134 +1,213 @@
 # 4: Making Unit Testable Plugins
 
-
 - [Home](../README.md)
 - [Previous](3-declaring-tasks-the-right-way.md)
 - [Next](5-making-configurable-plugins.md)
 
-At this point we've created plugins, added tasks, and created integration tests. We have a learned some techniques already that allow us to build useful plugins. There is a big problem though, as your plugin grows integration tests will take a long time. This can make it painful to work in the plugin as its feature set grows. We can solve that problem by applying some heathly software practices to create decoupled and unit testable plugins.
+We can now create plugins, add configurable tasks, and test them. There is a problem waiting for us
+though: every test we have written so far starts a Gradle build. As the plugin grows, the suite gets
+slower, until changing anything is painful. We fix that by decoupling the work from the Gradle
+machinery.
 
 In this tutorial we will cover:
 
-- How to define a task implementation in away that allows unit testing.
-- How to write some fast and simple unit tests.
+- Why tasks are awkward to unit test.
+- How to define a task implementation so it can be unit tested.
+- How to write fast unit tests against it.
 
 ## The Problem with Gradle Tasks
 
-At the end of the day, a gradle task requires a project to run. Creating a project from within a test infrastructure is difficult as we've already seen. In order to work around this problem we will seperate our implementation from the gradle plugin infrastructure. We'll test the implementation using normal unit testing, and test the ties to the gradle infrastructure using the mechanisms already described.
+A task type extends `DefaultTask`, and a `DefaultTask` needs a `Project` to exist. Building one
+inside a test means `ProjectBuilder`, which is heavy, or TestKit, which is heavier. Neither is
+something you want between you and a red or green bar.
 
-Let's take the following task from our previous tutorial:
+Take the task from the previous tutorial:
 
-``` groovy
-package com.jhood
+```java
+@DisableCachingByDefault(because = "Writing a handful of bytes is cheaper than a cache round trip")
+public abstract class MyTask extends DefaultTask {
+    @OutputFile
+    public abstract RegularFileProperty getOutputFile();
 
-import org.gradle.api.DefaultTask
-import org.gradle.api.tasks.TaskAction
-
-class MyTask extends DefaultTask {
-    File outputFile = new File(project.buildDir, "myfile.txt")
+    @Input
+    public abstract Property<String> getFileContent();
 
     @TaskAction
-    def action() {
-        outputFile.parentFile.mkdirs()
-        outputFile.createNewFile()
-        outputFile.text = "HELLO FROM MY PLUGIN"
+    public void action() throws IOException {
+        Path target = getOutputFile().get().getAsFile().toPath();
+        Files.createDirectories(target.getParent());
+        Files.write(target, getFileContent().get().getBytes(StandardCharsets.UTF_8));
     }
 }
 ```
 
-The primary problem here is that the task extends ``DefaultTask`` which is hard to construct without a fully defined ``Project``. The implementation of the task only depends on one thing from gradle itself though - ``project.buildDir``. The solution then, is simple. We'll define the implementation of the task as a new class which doesn't depend on ``Project`` and then make the task construct and use the implementation.
+Look at what the body of `action` actually needs: a `File` and a `String`. Everything else is
+scaffolding. So we pull those three lines into a class that knows nothing about Gradle, and let the
+task be a thin adapter.
 
 ## Creating a Task Implementation Class
 
-Let's create the following new class:
+```java
+package io.github.intisy.impl;
 
-``` groovy
-package com.jhood.impl
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
-class FileCreator {
-    File outputFile
-    
-    FileCreator(File outputFile) {
-        this.outputFile = outputFile
+public class FileCreator {
+    private final File outputFile;
+    private final String content;
+
+    public FileCreator(File outputFile, String content) {
+        this.outputFile = outputFile;
+        this.content = content;
     }
-    
-    def create() {
-        this.outputFile.parentFile.mkdirs()
-        this.outputFile.createNewFile()
-        this.outputFile.text = "HELLO FROM MY PLUGIN"
+
+    public void create() throws IOException {
+        Path target = outputFile.toPath();
+        Files.createDirectories(target.getParent());
+        Files.write(target, content.getBytes(StandardCharsets.UTF_8));
     }
 }
 ```
 
-Let's take a minute to point out a few important things:
+A few things worth pointing out:
 
-1. There are no dependencies on Gradle. In fact this only uses standard Groovy constructs. This will be easy to write tests for.
-2. We can trivially construct this inside our task definition. Users won't notice a difference.
+1. **There is no dependency on Gradle.** Only the JDK. This will be trivial to test.
+2. **Everything it needs arrives through the constructor.** No lookups, no ambient state.
+3. **It is trivially constructible from inside a task.** Users will not notice a difference.
+
+Putting it in an `impl` package is a useful convention: it signals that the class is not part of the
+plugin's public surface, so you can change it without breaking anyone's build script.
 
 ## Making our Tasks Simpler
 
-Our task implementation now simplified to:
+The task now reduces to:
 
-``` groovy
-package com.jhood
+```java
+package io.github.intisy;
 
-import com.jhood.impl.FileCreator
-import org.gradle.api.tasks.TaskAction
+import io.github.intisy.impl.FileCreator;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.OutputFile;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.work.DisableCachingByDefault;
 
-class MyTestableTasik extends DefaultTask {
-    File outputFile = new File(project.buildDir, "myfile.txt")
+import java.io.IOException;
+
+@DisableCachingByDefault(because = "Writing a handful of bytes is cheaper than a cache round trip")
+public abstract class MyTestableTask extends DefaultTask {
+    @OutputFile
+    public abstract RegularFileProperty getOutputFile();
+
+    @Input
+    public abstract Property<String> getFileContent();
 
     @TaskAction
-    def action() {
-        def creator = new FileCreator(outputFile)
-        creator.create()
+    public void action() throws IOException {
+        new FileCreator(getOutputFile().get().getAsFile(), getFileContent().get()).create();
     }
 }
 ```
 
-When this happens, the job of the task class is just to:
+The job of the task class is now only to:
 
-1. Expose configuration to the user where necessary.
-2. Define a ``@TaskAction`` handler.
+1. Expose configuration to the user.
+2. Declare inputs and outputs so Gradle can skip the task when nothing changed.
+3. Unwrap the properties and hand plain values to the implementation.
 
-This is really nice. It's not such a big deal now that we can't unit test the implementation of the task itself because its job is very simple.
+That is a small enough job that not being able to unit test it stops mattering. The integration test
+from tutorial 2 covers the wiring; the unit tests below cover the behaviour.
 
-## Testing the ``FileCreator``
+Note the exact placement of the `get()` calls. They happen inside `@TaskAction`, which is execution
+time, so the values are whatever the user finally configured. Calling `get()` during configuration
+would read the value too early, before the build script has been evaluated. That distinction is the
+subject of the next tutorial.
 
-Lets now test our ``FileCreator`` using a unit test bench.
+## Testing the `FileCreator`
 
-``` groovy
-package impl
+Now the payoff. These tests need no `Project`, no build, and no TestKit:
 
-import com.jhood.impl.FileCreator
+```java
+package io.github.intisy.impl;
 
-class TestFileCreator extends GroovyTestCase {
-    void testCreatesFileWithContent() {
-        def tempFile = File.createTempFile("temp", ".tmp")
-        def creator = new FileCreator(tempFile)
-        creator.create()
-        assertTrue(tempFile.exists())
-        assertEquals("HELLO FROM MY PLUGIN", tempFile.text)
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class TestFileCreator {
+    @TempDir
+    Path tempDir;
+
+    @Test
+    void createsFileWithContent() throws IOException {
+        File target = tempDir.resolve("out.txt").toFile();
+
+        new FileCreator(target, "HELLO FROM MY PLUGIN").create();
+
+        assertTrue(target.exists());
+        assertEquals("HELLO FROM MY PLUGIN", Files.readString(target.toPath()));
     }
 
-    void testCreatesFileIfParentDirMissing() {
-        def tempDir = File.createTempDir()
-        def tempFile = new File(tempDir, "testing.tmp")
-        tempDir.delete()
+    @Test
+    void createsMissingParentDirectories() throws IOException {
+        File target = tempDir.resolve("deeply/nested/out.txt").toFile();
 
-        def creator = new FileCreator(tempFile)
-        creator.create()
-        assertTrue(tempFile.exists())
-        assertEquals("HELLO FROM MY PLUGIN", tempFile.text)
+        new FileCreator(target, "HELLO FROM MY PLUGIN").create();
+
+        assertTrue(target.exists());
+        assertEquals("HELLO FROM MY PLUGIN", Files.readString(target.toPath()));
+    }
+
+    @Test
+    void overwritesAnExistingFile() throws IOException {
+        File target = tempDir.resolve("out.txt").toFile();
+        Files.writeString(target.toPath(), "STALE");
+
+        new FileCreator(target, "FRESH").create();
+
+        assertEquals("FRESH", Files.readString(target.toPath()));
     }
 }
 ```
 
-Very quickly we can now build up coverage around the corner cases of our implementation. It helps that groovy's built in ``GroovyTestCase`` provides a really nice integrated unit test infrastructure.
+JUnit 5's `@TempDir` gives each test a fresh directory and deletes it afterwards, so there is no
+`setUp` or `tearDown` to forget. Compare this with the older pattern of `File.createTempFile` plus
+`deleteOnExit`, which leaves files around for the lifetime of the JVM and shares state between
+tests.
+
+Corner cases are now cheap to cover. Missing parents, existing files, empty content, character
+encoding, a path that is a directory: each is a few lines and runs in microseconds. That is the kind
+of coverage you will never build up if every case costs you a Gradle build.
+
+## Where the Line Sits
+
+A useful rule of thumb for deciding what goes in which test:
+
+| Question | Test |
+| --- | --- |
+| Does the logic do the right thing? | Unit test the `impl` class |
+| Is the task registered, named, typed, configured? | `ProjectBuilder` test |
+| Does the whole thing work when a build script applies it? | TestKit integration test |
+
+Aim for many of the first, some of the second, and few of the third.
 
 ## Next Steps
 
-In this tutorial we've learned to seperate our plugin implementation from the actual Gradle infrastructure. This allows us to leverage unit testing capabilities available in groovy rather than relying on full builds and integration tests.
+We have separated the plugin's logic from the Gradle infrastructure, which lets us test that logic
+with ordinary fast unit tests rather than full builds.
 
-In the next tutorial we'll cover how-to make our plugin configuration using Gradle extensions. We'll also cover an important project lifeclye event - the project evaluation - which is required to read that configuration from a user's ``build.gradle``.
-
+In the next tutorial we will make the plugin configurable with a Gradle extension, and cover the
+project lifecycle rules that decide when configuration may be read.

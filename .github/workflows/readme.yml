@@ -1,0 +1,17 @@
+name: Generate README
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  readme:
+    uses: intisy/workflows/.github/workflows/readme.yml@main
+    with:
+      repository: ${{ github.repository }}
+    secrets:
+      envPAT: ${{ secrets.PAT }}

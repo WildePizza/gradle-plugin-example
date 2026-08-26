@@ -1,0 +1,14 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    uses: intisy/workflows/.github/workflows/test.yml@main
+    with:
+      toolchains: gradle
+      java_version: '17'
+      gradle_test: build

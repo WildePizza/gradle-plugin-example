@@ -1,11 +1,3 @@
-# Gradle Plugin Example
-
-## What is gradle-plugin-example?
-
-A worked example and eight part tutorial on writing, testing and configuring Gradle plugins in Java.
-
-Everything the tutorial teaches is built and tested in this repository.
-
 ## The Tutorial
 
 1. [Your First Gradle Plugin](tutorial/1-your-first-gradle-plugin.md) - implementing `Plugin<Project>`, registering a task, and declaring the plugin id.
@@ -156,7 +148,3 @@ tutorial was written in Groovy against Gradle 2. The example plugin and all of t
 since been rewritten in Java against modern Gradle and extended with three further parts, covering lazy
 properties, the configuration cache, and current TestKit. The shape of the lessons is still very
 much the original author's.
-
-## License
-
-[![Apache License 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)

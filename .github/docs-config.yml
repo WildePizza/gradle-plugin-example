@@ -1,0 +1,12 @@
+# Consumed by intisy/workflows .github/scripts/generate-readme.py via readme.yml.
+# The parser is a flat key/value and key/list subset, so every value stays on one line.
+kind: gradle-plugin
+title: Gradle Plugin Example
+license: Apache License 2.0
+description: A worked example and eight part tutorial on writing, testing and configuring Gradle plugins in Java.
+content_intro: Everything the tutorial teaches is built and tested in this repository.
+sections:
+  - title
+  - about
+  - content
+  - license-badge

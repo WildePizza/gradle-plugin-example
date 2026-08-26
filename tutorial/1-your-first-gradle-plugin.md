@@ -1,99 +1,165 @@
-# 1: Your first Gradle plugin
+# 1: Your First Gradle Plugin
 
 - [Home](../README.md)
 - [Next](2-your-first-plugin-test.md)
 
-
-
-Gradle plugins start simple. You can define some groovy code for the plugin, and add tasks to a given project. In this tutorial we'll cover:
+Gradle plugins start simple. You write a class that adds tasks to a project, tell Gradle where to
+find it, and apply it from a build script. In this tutorial we will cover:
 
 - How to create a simple plugin.
 - How to add a task to the project.
-- How to tell gradle about your plugin.
+- How to tell Gradle about your plugin.
 - How to use your plugin in a project.
 
 ## Basic Plugin Structure
 
-At their core, a plugin is just a JAR file with some code and a properties file.  The contents of a simple plugin JAR file looks something like:
+At its core a plugin is just a JAR file with some classes and a properties file that names the
+entry point. The contents of a simple plugin JAR look something like:
 
 ```
 .
-├── com
-│   └── jhood
-│       └── MyPlugin.class
+├── io
+│   └── github
+│       └── intisy
+│           └── MyPlugin.class
 └── META-INF
     ├── gradle-plugins
-    │   └── myplugin.properties
+    │   └── io.github.intisy.myplugin.properties
     └── MANIFEST.MF
-
 ```
+
+The properties file under `META-INF/gradle-plugins` is what maps a plugin id to an implementation
+class. Its name is the plugin id, so the file above declares the id `io.github.intisy.myplugin`.
+You will see in a moment that you do not have to write that file yourself.
 
 ## Defining a Plugin Implementation
 
-The plugin code itself starts really simple. Just inherit from the ``Plugin<Project>`` and implement the ``apply`` method.
+The plugin code itself is small. Implement `Plugin<Project>` and write an `apply` method.
 
-The following example adds the ``dealwithit`` task to gradle project it's applied to.
+The following example adds a `dealwithit` task to whatever project it is applied to.
 
-```groovy
-package com.jhood
+```java
+package io.github.intisy;
 
-import org.gradle.api.Plugin
-import org.gradle.api.Project
+import org.gradle.api.Plugin;
+import org.gradle.api.Project;
 
-class MyPlugin implements Plugin<Project> {
-    void apply(Project project) {
-		project.task("dealwithit") {
-			println("(•_•) ( •_•)>⌐■-■ (⌐■_■)")
-		}
+public class MyPlugin implements Plugin<Project> {
+    @Override
+    public void apply(Project project) {
+        project.getTasks().register("dealwithit", task ->
+                task.doLast(action -> System.out.println("(•_•) ( •_•)>⌐■-■ (⌐■_■)")));
     }
 }
 ```
 
-## Telling Gradle How-To Load Your Plugin
+Two details in that snippet matter more than they look:
 
-We must also tell Gradle that the ``MyPlugin`` class is a plugin applied with the ``myplugin`` name. You do that by editing the ``<pluginname>.properties `` file. 
+**The class must be `public`.** Gradle instantiates it reflectively from another class loader. A
+package private plugin class compiles perfectly happily and then fails at apply time.
 
-The example ``myplugin.properties`` file includes a simple declaration of the implementation class.
+**The `println` goes inside `doLast`, not next to it.** Gradle builds run in two stages. During the
+*configuration* stage it evaluates every build script and creates the task graph; during the
+*execution* stage it actually runs the tasks you asked for. Code written directly in the task
+configuration block runs at configuration time, which means it prints on every single build even
+when nobody asked for `dealwithit`. Anything that is the *work* of the task belongs in a
+`doLast` block or, better still, in a `@TaskAction` method as shown in
+[tutorial 3](3-declaring-tasks-the-right-way.md).
 
+Note also that we call `register` rather than `create`. `register` is lazy: the task object is only
+instantiated if something in the build actually needs it. On a large plugin that difference is real
+configuration time, and it is what Gradle recommends today.
+
+## Telling Gradle How To Load Your Plugin
+
+We must tell Gradle that `MyPlugin` is the implementation behind a plugin id. You could hand write
+`src/main/resources/META-INF/gradle-plugins/io.github.intisy.myplugin.properties`:
+
+```properties
+implementation-class=io.github.intisy.MyPlugin
 ```
-implementation-class=com.jhood.MyPlugin
-```
 
+Do not. Hand writing that file is the single most common way to break a plugin, because nothing
+checks that the class name in it still matches reality. Rename or move the class and the build stays
+green while the plugin silently stops loading.
 
-## Using the Plugin in a Project
-
-You can publish this plugin to your local maven repository (using ``gradle install``), and use it in another example project with:
+Instead, declare the plugin in your `build.gradle` and let the `java-gradle-plugin` plugin generate
+the descriptor for you:
 
 ```groovy
-apply plugin: "myplugin"
+plugins {
+    id 'java-gradle-plugin'
+}
 
-buildscript {
-  repositories {
-    mavenLocal()
-  }
-  dependencies {
-    classpath "com.jhood:myplugin:1.+"
-  }
+gradlePlugin {
+    plugins {
+        create('myplugin') {
+            id = 'io.github.intisy.myplugin'
+            implementationClass = 'io.github.intisy.MyPlugin'
+            displayName = 'Gradle Plugin Example'
+            description = 'A worked example of a Gradle plugin'
+        }
+    }
 }
 ```
 
-In the real world we'd want to use a real maven repository. For this tutorial we'll use the maven local repository to keep things simple.
+Now the descriptor is generated at build time, and the `validatePlugins` task that
+`java-gradle-plugin` adds will fail the build if `implementationClass` does not resolve.
 
-Once this is done, you can use the ``myplugin`` functionality:
+Give the id a namespace, as above. Bare ids like `myplugin` still work for local use but they
+collide with everyone else's, and the Gradle Plugin Portal will not accept them.
 
-``` bash
-$> gradle dealwithit
+## Using the Plugin in a Project
+
+Publish the plugin to your local Maven repository:
+
+```bash
+./gradlew publishToMavenLocal
+```
+
+(The old `gradle install` task was removed years ago along with the `maven` plugin. Applying
+`maven-publish` alongside `java-gradle-plugin` gives you `publishToMavenLocal` for free.)
+
+Then consume it from another project. Add the repository in `settings.gradle`, because that is
+where Gradle resolves plugins from:
+
+```groovy
+pluginManagement {
+    repositories {
+        mavenLocal()
+        gradlePluginPortal()
+    }
+}
+```
+
+and apply it in `build.gradle`:
+
+```groovy
+plugins {
+    id 'io.github.intisy.myplugin' version '1.0.0'
+}
+```
+
+The `plugins { }` block replaces the old `buildscript { classpath ... }` incantation. It is
+resolvable, it is version aware, and Gradle can reason about it before evaluating the script.
+
+Once this is done you can use the `myplugin` functionality:
+
+```bash
+$ gradle dealwithit
+
+> Task :dealwithit
 (•_•) ( •_•)>⌐■-■ (⌐■_■)
-:dealwithit UP-TO-DATE
 
-BUILD SUCCESSFUL
-
-Total time: 0.503 secs
+BUILD SUCCESSFUL in 0s
+1 actionable task: 1 executed
 ```
 
 ## Next Steps
 
-That's it. With some very simple code, we now have a basic functioning plugin. We've written a plugin implementation by inheriting from ``Plugin<Project>`` and used the plugin to implement the ``dealwithit`` task. We've also informed gradle of our plugin via the ``myplugin.properties`` file.
+That is it. With a small amount of code we have a functioning plugin. We implemented
+`Plugin<Project>`, registered a `dealwithit` task, and let `java-gradle-plugin` tell Gradle about
+the plugin id.
 
-In the next steps we will talk about how-to write a test for this simple plugin and its one task. Testing is one of the primary benefits to using Gradle plugins, and we'll repeatedly touch on this in future steps.
- 
+In the next step we will write a test for this plugin and its one task. Testing is one of the
+primary benefits of packaging build logic as a plugin, and we will keep coming back to it.

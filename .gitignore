@@ -1,4 +1,28 @@
-userHome
-build
-.gradle
-/.idea
+# Gradle
+.gradle/
+build/
+userHome/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Test fixture output
+testProjects/*/.gradle/
+testProjects/*/build/
+
+# IDE
+/.idea/
+*.iml
+*.ipr
+*.iws
+/.settings/
+/.classpath
+/.project
+/out/
+/bin/
+/nbproject/private/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated on the default branch by intisy/workflows readme.yml
+README.md
