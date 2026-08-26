@@ -1,0 +1,7 @@
+plugins {
+    id 'io.github.intisy.myplugin'
+}
+
+myplugin {
+    fileContent = 'CONFIGURED'
+}

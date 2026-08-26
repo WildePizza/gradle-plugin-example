@@ -1,41 +1,30 @@
 package io.github.intisy;
 
 import org.gradle.api.DefaultTask;
+import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.work.DisableCachingByDefault;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
-public class MyTask extends DefaultTask {
-    private File outputFile;
+@DisableCachingByDefault(because = "Writing a handful of bytes is cheaper than a cache round trip")
+public abstract class MyTask extends DefaultTask {
+    @OutputFile
+    public abstract RegularFileProperty getOutputFile();
 
-    public MyTask() {
-        this.outputFile = new File(getProject().getBuildDir(), "myfile.txt");
-    }
-
-    public File getOutputFile() {
-        return outputFile;
-    }
-
-    public void setOutputFile(File outputFile) {
-        this.outputFile = outputFile;
-    }
+    @Input
+    public abstract Property<String> getFileContent();
 
     @TaskAction
     public void action() throws IOException {
-        // Ensure the parent directories exist
-        if (!outputFile.getParentFile().exists()) {
-            outputFile.getParentFile().mkdirs();
-        }
-
-        // Create the file if it does not exist
-        if (!outputFile.exists()) {
-            outputFile.createNewFile();
-        }
-
-        // Set the content of the file
-        String fileContent = (String) getProject().getExtensions().getByName("myplugin.fileContent");
-        Files.write(outputFile.toPath(), fileContent.getBytes());
+        Path target = getOutputFile().get().getAsFile().toPath();
+        Files.createDirectories(target.getParent());
+        Files.write(target, getFileContent().get().getBytes(StandardCharsets.UTF_8));
     }
 }

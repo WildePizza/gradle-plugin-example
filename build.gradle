@@ -1,47 +1,56 @@
 plugins {
     id 'java-gradle-plugin'
     id 'maven-publish'
-    id 'java'
 }
 
 group = artifact_group
-version = "${artifact_version}.${build_number}"
+version = artifact_version
+description = artifact_description
 
-repositories {
-	mavenCentral()
-}
-
-dependencies {
-    implementation gradleApi()
-    testImplementation(platform("org.junit:junit-bom:5.9.1"))
-    testImplementation("org.junit.jupiter:junit-jupiter")
-}
-
-test {
-    useJUnitPlatform()
-}
-
-test {
-    // Always run the tests
-    outputs.upToDateWhen { false }
-
-    // Turn on some console logging
-    testLogging {
-        events "passed", "skipped", "failed"
-        exceptionFormat "full"
-        stackTraceFilters "entryPoint"
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
     }
 }
 
-// Write the plugin's classpath to a file to share with the tests
-task createClasspathManifest {
-    def outputDir = file("$buildDir/$name")
+repositories {
+    mavenCentral()
+}
 
-    inputs.files sourceSets.main.runtimeClasspath
-    outputs.dir outputDir
+// The sources and the fixtures both contain non-ASCII characters, so neither the compiler nor the
+// test JVM may fall back to the platform default encoding.
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
 
-    doLast {
-        outputDir.mkdirs()
-        file("$outputDir/plugin-classpath.txt").text = sourceSets.main.runtimeClasspath.join("\n")
+gradlePlugin {
+    website = "https://github.com/$author/$artifact_name"
+    vcsUrl = "https://github.com/$author/$artifact_name"
+    plugins {
+        create(artifact_id) {
+            id = "${artifact_group}.${artifact_id}"
+            implementationClass = "${artifact_group}.MyPlugin"
+            displayName = display_name
+            description = artifact_description
+            tags = ['example', 'tutorial']
+        }
+    }
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    systemProperty 'file.encoding', 'UTF-8'
+    defaultCharacterEncoding = 'UTF-8'
+
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+        stackTraceFilters 'entryPoint'
     }
 }

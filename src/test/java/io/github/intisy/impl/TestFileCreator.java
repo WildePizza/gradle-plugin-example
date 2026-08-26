@@ -1,46 +1,57 @@
 package io.github.intisy.impl;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TestFileCreator {
+class TestFileCreator {
+    @TempDir
+    Path tempDir;
 
     @Test
-    public void testCreatesFileWithContent() throws IOException {
-        // Create a temporary file
-        File tempFile = File.createTempFile("temp", ".tmp");
-        tempFile.deleteOnExit(); // Ensures the temp file is deleted after tests
+    void createsFileWithContent() throws IOException {
+        File target = tempDir.resolve("out.txt").toFile();
 
-        // Create the FileCreator object and create the file
-        FileCreator creator = new FileCreator(tempFile);
-        creator.create();
+        new FileCreator(target, "HELLO FROM MY PLUGIN").create();
 
-        // Assert that the file exists and contains the expected content
-        assertTrue(tempFile.exists());
-        assertEquals("HELLO FROM MY PLUGIN", Files.readString(tempFile.toPath()));
+        assertTrue(target.exists());
+        assertEquals("HELLO FROM MY PLUGIN", Files.readString(target.toPath()));
     }
 
     @Test
-    public void testCreatesFileIfParentDirMissing() throws IOException {
-        // Create a temporary directory and a file inside it
-        File tempDir = Files.createTempDirectory("tempDir").toFile();
-        File tempFile = new File(tempDir, "testing.tmp");
+    void createsMissingParentDirectories() throws IOException {
+        File target = tempDir.resolve("deeply/nested/out.txt").toFile();
 
-        // Delete the temp directory to simulate the missing parent directory scenario
-        tempDir.delete();
+        new FileCreator(target, "HELLO FROM MY PLUGIN").create();
 
-        // Create the FileCreator object and create the file
-        FileCreator creator = new FileCreator(tempFile);
-        creator.create();
+        assertTrue(target.exists());
+        assertEquals("HELLO FROM MY PLUGIN", Files.readString(target.toPath()));
+    }
 
-        // Assert that the file exists and contains the expected content
-        assertTrue(tempFile.exists());
-        assertEquals("HELLO FROM MY PLUGIN", Files.readString(tempFile.toPath()));
+    @Test
+    void overwritesAnExistingFile() throws IOException {
+        File target = tempDir.resolve("out.txt").toFile();
+        Files.writeString(target.toPath(), "STALE");
+
+        new FileCreator(target, "FRESH").create();
+
+        assertEquals("FRESH", Files.readString(target.toPath()));
+    }
+
+    @Test
+    void writesContentAsUtf8() throws IOException {
+        File target = tempDir.resolve("out.txt").toFile();
+
+        new FileCreator(target, "¯\\_(ツ)_/¯").create();
+
+        assertEquals("¯\\_(ツ)_/¯", new String(Files.readAllBytes(target.toPath()), StandardCharsets.UTF_8));
     }
 }
